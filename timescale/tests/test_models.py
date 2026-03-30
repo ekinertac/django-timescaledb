@@ -201,15 +201,14 @@ class TestToListEdgeCases:
         results = Metric.timescale.none().to_list(normalise_datetimes=True)
         assert results == []
 
-    def test_to_list_normalise_datetimes_with_gapfill_none_buckets(self):
-        from datetime import timezone as tz
+    def test_to_list_normalise_datetimes_with_gapfill(self):
         START = datetime(2024, 6, 15, 8, 0, 0, tzinfo=tz.utc)
         END   = datetime(2024, 6, 15, 11, 0, 0, tzinfo=tz.utc)
 
         # Only one data point — hours 8 and 10 will be gap rows (bucket present, value None)
         MetricFactory(time=datetime(2024, 6, 15, 9, 0, 0, tzinfo=tz.utc), temperature=10.0)
 
-        from django.db.models import Avg
+        # gap rows have bucket as a valid datetime; only annotation values (temperature__avg) are None
         results = (
             Metric.timescale
             .time_bucket_gapfill('time', '1 hour', START, END)
@@ -217,7 +216,6 @@ class TestToListEdgeCases:
             .to_list(normalise_datetimes=True)
         )
 
-        # Should not raise — gap rows have bucket present but as ISO string, not None crash
         assert len(results) == 3
         # All bucket values must be strings (ISO format), not datetimes
         for row in results:
