@@ -1,6 +1,8 @@
 import pytest
-from django.db import connection
+from django.db import connection, models as dj_models
+from django.test.utils import isolate_apps
 
+from timescale.db.models.fields import TimescaleDateTimeField
 from timescale.tests.models import AnotherMetric, Metric
 
 pytestmark = pytest.mark.django_db
@@ -68,3 +70,72 @@ class TestAlterField:
             # Restore original interval so subsequent tests are unaffected
             with connection.schema_editor() as editor:
                 editor.alter_field(Metric, new_field, old_field)
+
+
+class TestAddField:
+    @pytest.mark.django_db(transaction=True)
+    def test_add_timescale_field_converts_table_to_hypertable(self):
+        """add_field with TimescaleDateTimeField migrates an existing plain table to a hypertable."""
+        with isolate_apps('timescale.tests'):
+            class TempTable(dj_models.Model):
+                value = dj_models.FloatField(default=0.0)
+                class Meta:
+                    app_label = 'timescale_tests'
+                    db_table = 'timescale_tests_temptable_addfield'
+
+            # Create the table WITHOUT a TimescaleDateTimeField (plain table, not a hypertable)
+            with connection.schema_editor() as editor:
+                editor.create_model(TempTable)
+
+            try:
+                assert not _is_hypertable('timescale_tests_temptable_addfield')
+
+                new_field = TimescaleDateTimeField(interval='1 day', null=True)
+                new_field.set_attributes_from_name('ts')
+                new_field.model = TempTable
+
+                with connection.schema_editor() as editor:
+                    editor.add_field(TempTable, new_field)
+
+                assert _is_hypertable('timescale_tests_temptable_addfield')
+            finally:
+                with connection.schema_editor() as editor:
+                    try:
+                        editor.delete_model(TempTable)
+                    except Exception:
+                        pass
+
+
+class TestAlterFieldToHypertable:
+    @pytest.mark.django_db(transaction=True)
+    def test_alter_datetime_to_timescale_converts_to_hypertable(self):
+        """alter_field from DateTimeField to TimescaleDateTimeField migrates table to hypertable."""
+        with isolate_apps('timescale.tests'):
+            class TempTable2(dj_models.Model):
+                ts = dj_models.DateTimeField(null=True)
+                value = dj_models.FloatField(default=0.0)
+                class Meta:
+                    app_label = 'timescale_tests'
+                    db_table = 'timescale_tests_temptable_alterfield'
+
+            with connection.schema_editor() as editor:
+                editor.create_model(TempTable2)
+
+            try:
+                assert not _is_hypertable('timescale_tests_temptable_alterfield')
+
+                old_field = TempTable2._meta.get_field('ts')
+                new_field = TimescaleDateTimeField(interval='1 day', null=True)
+                new_field.set_attributes_from_name('ts')
+                new_field.model = TempTable2
+
+                with connection.schema_editor() as editor:
+                    editor.alter_field(TempTable2, old_field, new_field)
+
+                assert _is_hypertable('timescale_tests_temptable_alterfield')
+            finally:
+                with connection.schema_editor() as editor:
+                    try:
+                        editor.delete_model(TempTable2)
+                    except Exception:
+                        pass

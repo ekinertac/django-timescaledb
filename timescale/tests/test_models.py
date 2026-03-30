@@ -129,3 +129,111 @@ class TestHistogram:
         assert 'histogram' in results[0]
         assert isinstance(results[0]['histogram'], list)
         assert sum(results[0]['histogram']) == 5
+
+
+# ── TimeBucket with origin/offset ────────────────────────────────────────────
+
+class TestTimeBucketOriginOffset:
+    T1 = datetime(2024, 6, 15, 10, 0, 0, tzinfo=tz.utc)
+    T2 = datetime(2024, 6, 15, 14, 0, 0, tzinfo=tz.utc)
+    T3 = datetime(2024, 6, 16, 10, 0, 0, tzinfo=tz.utc)
+
+    def test_time_bucket_with_origin(self):
+        from timescale.db.models.expressions import TimeBucket
+        MetricFactory(time=self.T1, temperature=10.0)
+        MetricFactory(time=self.T2, temperature=20.0)
+        MetricFactory(time=self.T3, temperature=30.0)
+
+        origin = datetime(2024, 6, 15, 0, 0, 0, tzinfo=tz.utc)
+        results = (
+            Metric.timescale
+            .values(bucket=TimeBucket('time', '1 day', origin=origin))
+            .order_by('-bucket')
+            .distinct()
+        )
+        results = list(results)
+        assert len(results) == 2
+        assert 'bucket' in results[0]
+
+    def test_time_bucket_with_offset(self):
+        from timescale.db.models.expressions import TimeBucket
+        MetricFactory(time=self.T1, temperature=10.0)
+        MetricFactory(time=self.T2, temperature=20.0)
+
+        results = (
+            Metric.timescale
+            .values(bucket=TimeBucket('time', '1 day', offset='1 hour'))
+            .order_by('-bucket')
+            .distinct()
+        )
+        results = list(results)
+        assert len(results) >= 1
+        assert 'bucket' in results[0]
+
+
+# ── TimeBucketGapFill with datapoints ────────────────────────────────────────
+
+class TestTimeBucketGapFillDatapoints:
+    def test_gapfill_with_datapoints_divides_interval(self):
+        START = datetime(2024, 6, 15, 8, 0, 0, tzinfo=tz.utc)
+        END   = datetime(2024, 6, 15, 10, 0, 0, tzinfo=tz.utc)
+
+        MetricFactory(time=datetime(2024, 6, 15, 9, 0, 0, tzinfo=tz.utc), temperature=10.0)
+
+        # datapoints=4 over a 2-hour window → 30-minute buckets → 4 buckets
+        results = (
+            Metric.timescale
+            .time_bucket_gapfill('time', '2 hours', START, END, datapoints=4)
+            .annotate(Avg('temperature'))
+            .to_list()
+        )
+        assert len(results) == 4
+
+
+# ── First / Last aggregates ───────────────────────────────────────────────────
+
+class TestFirstLastAggregates:
+    T1 = datetime(2024, 6, 15, 10, 0, 0, tzinfo=tz.utc)
+    T2 = datetime(2024, 6, 15, 11, 0, 0, tzinfo=tz.utc)
+    T3 = datetime(2024, 6, 15, 12, 0, 0, tzinfo=tz.utc)
+
+    def test_first_aggregate(self):
+        from timescale.db.models.aggregates import First
+        MetricFactory(time=self.T1, temperature=10.0)
+        MetricFactory(time=self.T2, temperature=20.0)
+        MetricFactory(time=self.T3, temperature=30.0)
+
+        result = Metric.objects.aggregate(first_temp=First('temperature', 'time'))
+        assert result['first_temp'] == 10.0
+
+    def test_last_aggregate(self):
+        from timescale.db.models.aggregates import Last
+        MetricFactory(time=self.T1, temperature=10.0)
+        MetricFactory(time=self.T2, temperature=20.0)
+        MetricFactory(time=self.T3, temperature=30.0)
+
+        result = Metric.objects.aggregate(last_temp=Last('temperature', 'time'))
+        assert result['last_temp'] == 30.0
+
+
+# ── LTTB ─────────────────────────────────────────────────────────────────────
+
+class TestLTTB:
+    @pytest.mark.skip(reason="TimescaleDB Toolkit (lttb) not available")
+    def test_lttb_returns_downsampled_results(self):
+        base = datetime(2024, 6, 15, 0, 0, 0, tzinfo=tz.utc)
+        for i in range(20):
+            MetricFactory(time=base + timedelta(hours=i), temperature=float(i))
+
+        results = Metric.timescale.lttb('time', 'temperature', num_of_counts=5).to_list()
+        # LTTB should downsample 20 points to ~5
+        assert len(results) == 5
+
+
+# ── TimescaleExtension ────────────────────────────────────────────────────────
+
+class TestTimescaleExtension:
+    def test_extension_name_is_timescaledb(self):
+        from timescale.db.operations import TimescaleExtension
+        ext = TimescaleExtension()
+        assert ext.name == 'timescaledb'
