@@ -169,6 +169,8 @@ class TestGetExtraCondition:
 
 
 class TestHypertableGuard:
+    # transaction=True required: schema_editor DDL exceptions abort the DB transaction;
+    # the default non-transactional django_db mode doesn't handle this rollback correctly.
     @pytest.mark.django_db(transaction=True)
     def test_create_hypertable_on_existing_hypertable_raises(self):
         """

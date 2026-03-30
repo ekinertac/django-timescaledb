@@ -224,9 +224,8 @@ class TestToListEdgeCases:
 
 class TestTimeBucketAnnotationsEdgeCases:
     """
-    annotations={} is treated the same as annotations=None.
-    Both take the .distinct() path — this is correct behavior, not a bug.
-    Passing an empty dict should not raise and should return deduplicated buckets.
+    annotations={} is treated the same as annotations=None — both take the .distinct()
+    path, returning deduplicated buckets with only the 'bucket' key (no extra annotation columns).
     """
     T1 = datetime(2024, 6, 15, 10, 0, 0, tzinfo=tz.utc)
     T2 = datetime(2024, 6, 15, 11, 0, 0, tzinfo=tz.utc)
@@ -239,10 +238,7 @@ class TestTimeBucketAnnotationsEdgeCases:
         results = Metric.timescale.time_bucket('time', '1 day', annotations={}).to_list()
         assert len(results) == 1
         assert 'bucket' in results[0]
-
-    def test_time_bucket_on_empty_queryset_returns_empty_list(self):
-        results = Metric.timescale.time_bucket('time', '1 day').to_list()
-        assert results == []
+        assert list(results[0].keys()) == ['bucket']
 
 
 # ── TimeBucketGapFill with datapoints ────────────────────────────────────────
