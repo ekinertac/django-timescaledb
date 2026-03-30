@@ -160,7 +160,7 @@ class TimescaleSchemaEditor(PostGISSchemaEditor):
             if self.connection.schema_name:
                 schema_name = self.quote_value(self.connection.schema_name)
                 extra_condition = ' AND ' + self.sql_hypertable_is_in_schema.format(schema_name=schema_name)
-        except:
+        except AttributeError:
             pass
 
         return extra_condition
