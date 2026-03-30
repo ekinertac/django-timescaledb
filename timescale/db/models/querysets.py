@@ -49,7 +49,8 @@ class TimescaleQuerySet(models.QuerySet):
         if normalise_datetimes:
             normalised = []
             for b in list(self):
-                b["bucket"] = b["bucket"].isoformat()
+                if 'bucket' in b:
+                    b['bucket'] = b['bucket'].isoformat()
                 normalised.append(b)
             return normalised
         return list(self)

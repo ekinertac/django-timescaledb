@@ -179,6 +179,29 @@ class TestTimeBucketOriginOffsetConflict:
             TimeBucket('time', '1 day', origin=origin, offset='1 hour')
 
 
+class TestToListEdgeCases:
+    T1 = datetime(2024, 6, 15, 10, 0, 0, tzinfo=tz.utc)
+    T2 = datetime(2024, 6, 15, 11, 0, 0, tzinfo=tz.utc)
+
+    def test_to_list_normalise_datetimes_without_bucket_key_does_not_crash(self):
+        MetricFactory(time=self.T1, temperature=10.0)
+        MetricFactory(time=self.T2, temperature=20.0)
+
+        # .values('temperature') produces dicts with no 'bucket' key — used to KeyError
+        results = Metric.timescale.values('temperature').to_list(normalise_datetimes=True)
+        assert len(results) == 2
+        assert 'temperature' in results[0]
+        assert 'bucket' not in results[0]
+
+    def test_to_list_on_empty_queryset_returns_empty_list(self):
+        results = Metric.timescale.none().to_list()
+        assert results == []
+
+    def test_to_list_normalise_datetimes_on_empty_queryset_returns_empty_list(self):
+        results = Metric.timescale.none().to_list(normalise_datetimes=True)
+        assert results == []
+
+
 # ── TimeBucketGapFill with datapoints ────────────────────────────────────────
 
 class TestTimeBucketGapFillDatapoints:
