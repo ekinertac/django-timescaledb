@@ -25,3 +25,10 @@ testpaths = ["timescale/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["timescale"]
+omit = ["timescale/db/backends/postgis/*"]
+
+[tool.coverage.report]
+omit = ["timescale/db/backends/postgis/*"]
