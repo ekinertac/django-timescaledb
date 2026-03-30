@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "django-timescaledb"
 version = "0.2.13"
 dynamic = ["description", "readme", "classifiers", "license", "authors", "urls"]
+requires-python = ">=3.9"
 
 [project.optional-dependencies]
 test = [
@@ -20,6 +21,7 @@ test = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "timescale.tests.settings"
 addopts = "--no-migrations -v"
+testpaths = ["timescale/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
