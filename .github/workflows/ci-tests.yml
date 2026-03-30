@@ -1,48 +1,67 @@
-name: Django timescaledb - Test basic project setup
+name: CI
+
 on:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
-  setup-example-project:
+  test:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        django-version: ['4.2', '5.2', '6.0']
+        exclude:
+          # Django 5.x+ requires Python 3.10+
+          - python-version: '3.9'
+            django-version: '5.2'
+          - python-version: '3.9'
+            django-version: '6.0'
+          # Django 6.0 requires Python 3.12+
+          - python-version: '3.10'
+            django-version: '6.0'
+          - python-version: '3.11'
+            django-version: '6.0'
+          # Django 4.2 does not support Python 3.13
+          - python-version: '3.13'
+            django-version: '4.2'
+
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 10s
+
     env:
       DB_NAME: test
       DB_USER: postgres
-      DB_PORT: 5433
+      DB_PASSWORD: password
+      DB_HOST: localhost
+      DB_PORT: 5432
 
     steps:
-      - uses: actions/checkout@v1
-      - name: Set up Python 3.7
-        uses: actions/setup-python@v1
-        with:
-          python-version: 3.7
+      - uses: actions/checkout@v4
 
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Install dependencies
-        run: |-
-          cd example
-          pip install -r requirements.txt
-
-          # Start timescaledb
-          docker run -d --name timescaledb -p 5433:5432 -e POSTGRES_PASSWORD=password -e POSTGRES_DB=test timescale/timescaledb:2.5.1-pg14
-
-          # Wait for db to be ready
-          sleep 4
-
-          # Migrate
-          PYTHONPATH=../ python3 manage.py migrate
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Run tests
-        run: |-
-          cd example
-          PYTHONPATH=../ python3 manage.py test
-
-      - name: Test alter field
-        run: |-
-          cd example
-          sed -i -e 's/1 day/2 days/g' metrics/models.py
-          PYTHONPATH=../ python3 manage.py makemigrations
-          PYTHONPATH=../ python3 manage.py migrate
+        run: |
+          uv run \
+            --python ${{ matrix.python-version }} \
+            --extra test \
+            --with "Django~=${{ matrix.django-version }}" \
+            pytest
