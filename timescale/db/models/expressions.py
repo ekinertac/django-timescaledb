@@ -46,6 +46,8 @@ class TimeBucket(models.Func):
 
 
     def __init__(self, expression, interval, offset=None, origin=None, *args, **kwargs):
+        if origin is not None and offset is not None:
+            raise ValueError("Cannot specify both origin and offset")
         if not isinstance(interval, models.Value):
             interval = models.Value(interval)
         args = [interval, expression]

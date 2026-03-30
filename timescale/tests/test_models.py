@@ -171,6 +171,14 @@ class TestTimeBucketOriginOffset:
         assert 'bucket' in results[0]
 
 
+class TestTimeBucketOriginOffsetConflict:
+    def test_raises_when_both_origin_and_offset_given(self):
+        from timescale.db.models.expressions import TimeBucket
+        origin = datetime(2024, 1, 1, tzinfo=tz.utc)
+        with pytest.raises(ValueError, match="Cannot specify both origin and offset"):
+            TimeBucket('time', '1 day', origin=origin, offset='1 hour')
+
+
 # ── TimeBucketGapFill with datapoints ────────────────────────────────────────
 
 class TestTimeBucketGapFillDatapoints:
