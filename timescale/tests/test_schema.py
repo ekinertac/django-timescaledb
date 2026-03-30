@@ -139,3 +139,30 @@ class TestAlterFieldToHypertable:
                         editor.delete_model(TempTable2)
                     except Exception:
                         pass
+
+
+class TestGetExtraCondition:
+    def test_attribute_error_is_silenced(self):
+        """Without django-tenants, schema_name doesn't exist — AttributeError must be silently ignored."""
+        from unittest.mock import MagicMock
+        from timescale.db.backends.postgresql.schema import TimescaleSchemaEditor
+
+        editor = TimescaleSchemaEditor.__new__(TimescaleSchemaEditor)
+        # spec=[] means the mock has NO attributes — accessing .schema_name raises AttributeError
+        editor.connection = MagicMock(spec=[])
+
+        result = editor._get_extra_condition()
+        assert result == ''
+
+    def test_non_attribute_errors_propagate(self):
+        """Any exception OTHER than AttributeError must not be swallowed."""
+        from unittest.mock import MagicMock, PropertyMock
+        from timescale.db.backends.postgresql.schema import TimescaleSchemaEditor
+
+        editor = TimescaleSchemaEditor.__new__(TimescaleSchemaEditor)
+        mock_conn = MagicMock()
+        type(mock_conn).schema_name = PropertyMock(side_effect=RuntimeError("unexpected error"))
+        editor.connection = mock_conn
+
+        with pytest.raises(RuntimeError, match="unexpected error"):
+            editor._get_extra_condition()
