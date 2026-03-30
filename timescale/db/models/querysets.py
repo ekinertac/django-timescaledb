@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Value
 from timescale.db.models.expressions import TimeBucket, TimeBucketGapFill, TimeBucketNG
 from timescale.db.models.aggregates import Histogram, LTTB
 from typing import Dict, Optional
@@ -13,7 +14,7 @@ class TimescaleQuerySet(models.QuerySet):
         """
         if annotations:
             return self.values(bucket=TimeBucket(field, interval)).order_by('-bucket').annotate(**annotations)
-        return self.values(bucket=TimeBucket(field, interval)).order_by('-bucket')
+        return self.values(bucket=TimeBucket(field, interval)).order_by('-bucket').distinct()
 
     def time_bucket_ng(self, field: str, interval: str, annotations: Dict = None):
         """
@@ -33,7 +34,7 @@ class TimescaleQuerySet(models.QuerySet):
         """
         Wraps the TimescaleDB histogram function into a queryset method.
         """
-        return self.values(histogram=Histogram(field, min_value, max_value, num_of_buckets))
+        return self.values(_group=Value(1)).annotate(histogram=Histogram(field, min_value, max_value, num_of_buckets)).values('histogram').order_by()
 
     def lttb(self, time: str, value: str, num_of_counts: int = 20):
         """

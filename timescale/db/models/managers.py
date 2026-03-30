@@ -12,8 +12,8 @@ class TimescaleManager(models.Manager):
     def get_queryset(self):
         return TimescaleQuerySet(self.model, using=self._db)
 
-    def time_bucket(self, field, interval):
-        return self.get_queryset().time_bucket(field, interval)
+    def time_bucket(self, field, interval, annotations=None):
+        return self.get_queryset().time_bucket(field, interval, annotations)
 
     def time_bucket_ng(self, field, interval):
         return self.get_queryset().time_bucket_ng(field, interval)
