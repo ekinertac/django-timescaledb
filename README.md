@@ -1,8 +1,6 @@
 # Django timescaledb
 
-[![PyPI version fury.io](https://badge.fury.io/py/django-timescaledb.svg)](https://pypi.python.org/pypi/django-timescaledb/)
-
-![Workflow](https://github.com/schlunsen/django-timescaledb/actions/workflows/ci-tests.yml/badge.svg)
+![Workflow](https://github.com/ekinertac/django-timescaledb/actions/workflows/ci-tests.yml/badge.svg)
 
 A database backend and tooling for Timescaledb.
 
