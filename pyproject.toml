@@ -3,9 +3,9 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "django-timescaledb"
-version = "0.3.0"
-dynamic = ["description", "readme", "classifiers", "license", "authors", "urls"]
+name = "django-timescaledb-ng"
+version = "0.3.1"
+dynamic = ["description", "readme", "classifiers", "license", "authors", "maintainers", "urls"]
 requires-python = ">=3.9"
 
 [project.optional-dependencies]

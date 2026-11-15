@@ -4,6 +4,8 @@
 
 A database backend and tooling for Timescaledb.
 
+This is a maintained fork of [django-timescaledb](https://github.com/jamessewell/django-timescaledb), released on PyPI as `django-timescaledb-ng`. The original has had no PyPI release since 0.2.13 (February 2023). This fork is tested on Django 4.2 to 6.0 and Python 3.9 to 3.13. The import name is still `timescale`, so it replaces the original and the two cannot be installed together.
+
 Based on [gist](https://gist.github.com/dedsm/fc74f04eb70d78459ff0847ef16f2e7a) from WeRiot.
 
 ## Quick start
@@ -11,7 +13,7 @@ Based on [gist](https://gist.github.com/dedsm/fc74f04eb70d78459ff0847ef16f2e7a) 
 1. Install via pip
 
 ```bash
-pip install django-timescaledb
+pip install django-timescaledb-ng
 ```
 
 2. Use as DATABASE engine in settings.py:
