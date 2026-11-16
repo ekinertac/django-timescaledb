@@ -2,7 +2,9 @@ import os
 
 DATABASES = {
     'default': {
-        'ENGINE': 'timescale.db.backends.postgresql',
+        # The CI job `postgis` sets DB_ENGINE=timescale.db.backends.postgis
+        # to run the same suite on the PostGIS copy of the backend.
+        'ENGINE': os.getenv('DB_ENGINE', 'timescale.db.backends.postgresql'),
         'NAME': os.getenv('DB_NAME', 'test'),
         'USER': os.getenv('DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DB_PASSWORD', 'password'),

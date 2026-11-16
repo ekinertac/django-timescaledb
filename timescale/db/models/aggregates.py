@@ -23,17 +23,28 @@ class Histogram(models.Aggregate):
 
 
 class LTTB(models.Func):
+    """
+    Largest Triangle Three Buckets downsampling, from timescaledb_toolkit.
+
+    lttb() returns a timevector, and unnest() turns it into rows with two
+    fixed columns, `time` and `value`. `column` selects one of them. It is
+    not the name of a model field: a model field `temperature` is still the
+    `value` column of the result.
+    """
     function = 'lttb'
     name = 'lttb'
-    output_field = models.DateTimeField()
 
-    def __init__(self, time, value, count, field):
-        self.fieldname = field
-        super().__init__(time, value, count)
+    COLUMNS = {'time': models.DateTimeField, 'value': models.FloatField}
+
+    def __init__(self, time, value, count, column):
+        if column not in self.COLUMNS:
+            raise ValueError("column must be 'time' or 'value', not %r" % (column,))
+        self.column = column
+        super().__init__(time, value, count, output_field=self.COLUMNS[column]())
 
     def as_sql(self, compiler, connection, **extra_context):
         sql, params = super().as_sql(compiler, connection, **extra_context)
-        return f'(unnest({sql})).{self.fieldname}', params
+        return f'(unnest({sql})).{self.column}', params
 
 
 class Last(models.Aggregate):

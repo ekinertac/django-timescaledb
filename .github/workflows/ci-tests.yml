@@ -65,3 +65,51 @@ jobs:
             --extra test \
             --with "Django~=${{ matrix.django-version }}" \
             pytest
+
+  # The PostGIS backend is a copy of the PostgreSQL one with another base
+  # class, so it runs the same suite once. The timescaledb-ha image has
+  # PostGIS and timescaledb_toolkit; with the toolkit the LTTB test also runs,
+  # which the plain image in the job above must skip.
+  postgis:
+    runs-on: ubuntu-latest
+
+    services:
+      timescaledb:
+        image: timescale/timescaledb-ha:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 20s
+
+    env:
+      DB_ENGINE: timescale.db.backends.postgis
+      DB_NAME: test
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_HOST: localhost
+      DB_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GDAL (the PostGIS backend of Django loads it)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gdal-bin
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run tests on the PostGIS backend
+        run: |
+          uv run \
+            --python 3.12 \
+            --extra test \
+            --with "Django~=5.2.0" \
+            pytest

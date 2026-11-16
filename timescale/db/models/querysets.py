@@ -46,9 +46,11 @@ class TimescaleQuerySet(models.QuerySet):
         Wraps the TimescaleDB toolkit lttb function into a queryset method.
         """
         return self.values(
-            lttb_t=LTTB(time, value, num_of_counts, time),
-            lttb_v=LTTB(time, value, num_of_counts, value)
-        )
+            lttb_t=LTTB(time, value, num_of_counts, 'time'),
+            lttb_v=LTTB(time, value, num_of_counts, 'value')
+        # lttb() is an aggregate over the whole queryset. A default ordering
+        # from Meta would add ORDER BY on a column that is not grouped.
+        ).order_by()
 
     def to_list(self, normalise_datetimes: bool = False):
         if normalise_datetimes:
