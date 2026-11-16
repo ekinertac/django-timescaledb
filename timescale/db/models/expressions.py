@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.db.models.functions import Cast
 from django.db.models.functions.mixins import (
     FixDurationInputMixin,
     NumericOutputFieldMixin,
@@ -54,7 +55,14 @@ class TimeBucket(models.Func):
         if origin is not None:
             args.append(origin)
         elif offset is not None:
-            if not isinstance(offset, models.Value):
+            # The offset must reach PostgreSQL typed as an interval. An untyped
+            # string matches the overload time_bucket(width, ts, timezone)
+            # instead, and '6 hours' is then read as a time zone name.
+            if isinstance(offset, models.Value) and isinstance(offset.value, str):
+                offset = offset.value
+            if isinstance(offset, str):
+                offset = Cast(models.Value(offset), models.DurationField())
+            elif not hasattr(offset, 'resolve_expression'):
                 offset = models.Value(offset)
             args.append(offset)
         output_field = TimescaleDateTimeField(interval=interval)
