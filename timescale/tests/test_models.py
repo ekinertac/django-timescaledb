@@ -311,6 +311,16 @@ class TestLTTB:
         results = Metric.timescale.lttb('time', 'temperature', num_of_counts=5).to_list()
         # LTTB should downsample 20 points to ~5
         assert len(results) == 5
+        # LTTB always keeps the first and the last point.
+        by_time = sorted(results, key=lambda row: row['lttb_t'])
+        assert (by_time[0]['lttb_t'], by_time[0]['lttb_v']) == (base, 0.0)
+        assert (by_time[-1]['lttb_t'], by_time[-1]['lttb_v']) == (base + timedelta(hours=19), 19.0)
+
+    def test_lttb_rejects_a_model_field_name_as_column(self):
+        """The result columns are always `time` and `value`, whatever the model fields are called."""
+        from timescale.db.models.aggregates import LTTB
+        with pytest.raises(ValueError):
+            LTTB('time', 'temperature', 5, 'temperature')
 
 
 # ── TimescaleExtension ────────────────────────────────────────────────────────
