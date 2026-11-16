@@ -180,11 +180,11 @@ class TestBackendBaseSetting:
         assert base_impl.backend() is DatabaseWrapper
 
     def test_subclass_of_the_postgresql_backend_is_accepted(self):
-        with override_settings(TIMESCALE_DB_BACKEND_BASE='timescale.db.backends.postgresql'):
-            assert base_impl.backend().__module__ == 'timescale.db.backends.postgresql.base'
+        with override_settings(TIMESCALE_DB_BACKEND_BASE='timescale.tests.backend_subclass'):
+            assert base_impl.backend().__module__ == 'timescale.tests.backend_subclass.base'
 
     def test_module_without_database_wrapper_is_rejected(self):
-        with override_settings(TIMESCALE_DB_BACKEND_BASE='timescale.tests.broken_backend'):
+        with override_settings(TIMESCALE_DB_BACKEND_BASE='timescale.tests.backend_without_wrapper'):
             with pytest.raises(ImproperlyConfigured, match='does not define a DatabaseWrapper'):
                 base_impl.backend()
 
