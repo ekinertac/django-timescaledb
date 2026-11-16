@@ -8,13 +8,18 @@ from datetime import datetime
 
 class TimescaleQuerySet(models.QuerySet):
 
-    def time_bucket(self, field: str, interval: str, annotations: Dict = None):
+    def time_bucket(self, field: str, interval: str, annotations: Dict = None, offset=None, origin=None):
         """
         Wraps the TimescaleDB time_bucket function into a queryset method.
+
+        `offset` (an interval such as '6 hours') or `origin` (a datetime)
+        moves the bucket boundaries, for example to local midnight. Pass one
+        of them, not both.
         """
+        bucket = TimeBucket(field, interval, offset=offset, origin=origin)
         if annotations:
-            return self.values(bucket=TimeBucket(field, interval)).order_by('-bucket').annotate(**annotations)
-        return self.values(bucket=TimeBucket(field, interval)).order_by('-bucket').distinct()
+            return self.values(bucket=bucket).order_by('-bucket').annotate(**annotations)
+        return self.values(bucket=bucket).order_by('-bucket').distinct()
 
     def time_bucket_ng(self, field: str, interval: str, annotations: Dict = None):
         """
