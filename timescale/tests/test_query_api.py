@@ -66,3 +66,27 @@ class TestTimeBucketOffsetOrigin:
     def test_offset_and_origin_together_raise(self):
         with pytest.raises(ValueError):
             Metric.timescale.time_bucket('time', '1 day', offset='6 hours', origin=DAY)
+
+
+@pytest.mark.django_db
+class TestGapfillFunctions:
+    def _rows(self, expression):
+        # Day 1 has value 10, day 2 is empty, day 3 has value 30.
+        MetricFactory(time=DAY + timedelta(hours=1), temperature=10.0)
+        MetricFactory(time=DAY + timedelta(days=2, hours=1), temperature=30.0)
+        end = DAY + timedelta(days=3)
+        rows = (
+            Metric.timescale.filter(time__range=(DAY, end))
+            .time_bucket_gapfill('time', '1 day', DAY, end)
+            .annotate(avg=Avg('temperature'), filled=expression)
+            .order_by('bucket')
+        )
+        return [(row['avg'], row['filled']) for row in rows]
+
+    def test_locf_carries_the_last_value_forward(self):
+        from timescale.db.models.expressions import Locf
+        assert self._rows(Locf(Avg('temperature'))) == [(10.0, 10.0), (None, 10.0), (30.0, 30.0)]
+
+    def test_interpolate_fills_the_gap_linearly(self):
+        from timescale.db.models.expressions import Interpolate
+        assert self._rows(Interpolate(Avg('temperature'))) == [(10.0, 10.0), (None, 20.0), (30.0, 30.0)]
