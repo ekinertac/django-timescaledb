@@ -35,17 +35,19 @@ def backend():
             (
                 "'%s' is not a valid database back-end."
                 " The module does not define a DatabaseWrapper class."
-                " Check the value of TIMESCALE_EXTRA_DB_BACKEND_BASE."
+                " Check the value of TIMESCALE_DB_BACKEND_BASE."
             )
             % base_class_name
         )
 
-    if isinstance(base_class, Psycopg2DatabaseWrapper):
+    # Was isinstance(base_class, ...), which is never true for a class, so a
+    # backend of another database passed and failed later in the schema editor.
+    if not issubclass(base_class, Psycopg2DatabaseWrapper):
         raise ImproperlyConfigured(
             (
                 "'%s' is not a valid database back-end."
-                " It does inherit from the PostgreSQL back-end."
-                " Check the value of TIMESCALE_EXTRA_DB_BACKEND_BASE."
+                " It does not inherit from the PostgreSQL back-end."
+                " Check the value of TIMESCALE_DB_BACKEND_BASE."
             )
             % base_class_name
         )

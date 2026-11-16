@@ -16,19 +16,29 @@ Constraints:
   the table does not exist yet. So the key name is looked up by the server in
   a DO block, not from Python.
 - Tables are passed to TimescaleDB as a quoted regclass (`'"Name"'`). An
-  unquoted name is folded to lower case by PostgreSQL. The two hypertable
-  asserts still match by table name; `_get_extra_condition` narrows them to
-  one schema for django-tenants.
+  unquoted name is folded to lower case by PostgreSQL. The hypertable asserts
+  compare regclass values too, so a hypertable with the same name in another
+  schema does not count.
+- Names and intervals are formatted into the SQL text, so every statement
+  here goes through `_run` and every value through `_literal`. That keeps a
+  % sign in a table name working on all Django versions (see `_literal`).
+  For the same reason no statement uses `format()` or a RAISE placeholder.
 """
 from django.conf import settings
+from django.db.backends.postgresql.psycopg_any import sql as psycopg_sql
 from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 
 from timescale.db.models.fields import TimescaleDateTimeField
 
 
 class TimescaleSchemaEditor(DatabaseSchemaEditor):
-    sql_is_hypertable = '''SELECT * FROM timescaledb_information.hypertables 
-    WHERE hypertable_name = {table}{extra_condition}'''
+    # {table} is the name as a string literal, {regclass} the quoted regclass.
+    # The name test is the cheap filter; the regclass test picks the one table
+    # that the current search_path resolves to. to_regclass gives NULL for a
+    # table that does not exist, so that case counts as "not a hypertable".
+    sql_is_hypertable = '''SELECT * FROM timescaledb_information.hypertables
+    WHERE hypertable_name = {table}
+    AND (quote_ident(hypertable_schema) || '.' || quote_ident(hypertable_name))::regclass = to_regclass({regclass}){extra_condition}'''
 
     sql_assert_is_hypertable = (
             'DO $do$ BEGIN '
@@ -36,7 +46,7 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
             + sql_is_hypertable +
             ') '
             'THEN NULL; '
-            'ELSE RAISE EXCEPTION {error_message}; '
+            'ELSE RAISE EXCEPTION USING MESSAGE = {error_message}; '
             'END IF;'
             'END; $do$'
     )
@@ -45,7 +55,7 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
             'IF EXISTS ( '
             + sql_is_hypertable +
             ') '
-            'THEN RAISE EXCEPTION {error_message}; '
+            'THEN RAISE EXCEPTION USING MESSAGE = {error_message}; '
             'ELSE NULL; '
             'END IF;'
             'END; $do$'
@@ -58,11 +68,11 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
     sql_drop_primary_key = (
         'DO $do$ DECLARE pkey text; BEGIN '
         "IF EXISTS (SELECT 1 FROM pg_constraint WHERE confrelid = {table}::regclass AND contype = 'f') "
-        'THEN RAISE EXCEPTION {error_message}; '
+        'THEN RAISE EXCEPTION USING MESSAGE = {error_message}; '
         'END IF; '
         "SELECT conname INTO pkey FROM pg_constraint WHERE conrelid = {table}::regclass AND contype = 'p'; "
         'IF pkey IS NOT NULL '
-        "THEN EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', {table}::regclass, pkey); "
+        "THEN EXECUTE 'ALTER TABLE ' || ({table}::regclass)::text || ' DROP CONSTRAINT ' || quote_ident(pkey); "
         'END IF; '
         'END; $do$'
     )
@@ -80,40 +90,57 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
 
     sql_hypertable_is_in_schema = '''hypertable_schema = {schema_name}'''
 
+    def _literal(self, value):
+        """
+        The value as an SQL string literal.
+
+        Not `quote_value`: on Django 4.2 that doubles every % sign, because
+        Django then runs the statement through % interpolation. Later Django
+        versions do not double it, and the interpolation fails on a single %.
+        `_run` skips the interpolation, so the plain literal is right on all
+        versions.
+        """
+        return psycopg_sql.quote(value, self.connection.connection)
+
+    def _run(self, sql):
+        """
+        Execute a finished statement as it is. params=None tells Django's
+        PostgreSQL editor not to % interpolate it. See `_literal`.
+        """
+        self.execute(sql, None)
+
     def _assert_is_hypertable(self, model):
         """
         Assert if the table is a hyper table
         """
-        table = self.quote_value(model._meta.db_table)
-        error_message = self.quote_value("assert failed - " + table + " should be a hyper table")
+        db_table = model._meta.db_table
+        error_message = self._literal("assert failed - '" + db_table + "' should be a hyper table")
 
-        extra_condition = self._get_extra_condition()
+        sql = self.sql_assert_is_hypertable.format(
+            table=self._literal(db_table), regclass=self._regclass(model),
+            error_message=error_message, extra_condition=self._get_extra_condition())
 
-        sql = self.sql_assert_is_hypertable.format(table=table, error_message=error_message,
-                                                   extra_condition=extra_condition)
-
-        self.execute(sql)
+        self._run(sql)
 
     def _assert_is_not_hypertable(self, model):
         """
         Assert if the table is not a hyper table
         """
-        table = self.quote_value(model._meta.db_table)
-        error_message = self.quote_value("assert failed - " + table + " should not be a hyper table")
+        db_table = model._meta.db_table
+        error_message = self._literal("assert failed - '" + db_table + "' should not be a hyper table")
 
-        extra_condition = self._get_extra_condition()
+        sql = self.sql_assert_is_not_hypertable.format(
+            table=self._literal(db_table), regclass=self._regclass(model),
+            error_message=error_message, extra_condition=self._get_extra_condition())
 
-        sql = self.sql_assert_is_not_hypertable.format(table=table, error_message=error_message,
-                                                       extra_condition=extra_condition)
-
-        self.execute(sql)
+        self._run(sql)
 
     def _regclass(self, model):
         """
         The table as a string literal that PostgreSQL casts to regclass.
         The inner identifier quotes keep upper case names intact.
         """
-        return self.quote_value(self.quote_name(model._meta.db_table))
+        return self._literal(self.quote_name(model._meta.db_table))
 
     def _primary_key_columns(self, model):
         pk = model._meta.pk
@@ -124,16 +151,14 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
         """
         Drop the primary key, whatever its name is.
         """
-        error_message = self.quote_value(
+        error_message = self._literal(
             "cannot convert " + model._meta.db_table + " to a hypertable: "
             "foreign keys in other tables reference it. Remove them first "
             "(for a ForeignKey, set db_constraint=False)."
         )
         sql = self.sql_drop_primary_key.format(table=self._regclass(model), error_message=error_message)
 
-        # params=None: the statement has literal % signs (format()), and the
-        # default params=() makes Django run it through % interpolation.
-        self.execute(sql, None)
+        self._run(sql)
 
     def _fix_primary_key(self, model, field):
         """
@@ -152,7 +177,7 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
         # column NOT NULL in any case, and both statements fail the same way
         # when existing rows have NULL in it.
         columns = ', '.join(self.quote_name(column) for column in pk_columns + [field.column])
-        self.execute(self.sql_add_primary_key.format(table=self.quote_name(model._meta.db_table), columns=columns))
+        self._run(self.sql_add_primary_key.format(table=self.quote_name(model._meta.db_table), columns=columns))
 
     def _create_hypertable(self, model, field, should_migrate=False):
         """
@@ -163,8 +188,8 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
 
         self._fix_primary_key(model, field)
 
-        partition_column = self.quote_value(field.column)
-        interval = self.quote_value(field.interval)
+        partition_column = self._literal(field.column)
+        interval = self._literal(field.interval)
         table = self._regclass(model)
         migrate = "true" if should_migrate else "false"
 
@@ -175,7 +200,7 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
             sql = self.sql_add_hypertable.format(
                 table=table, partition_column=partition_column, interval=interval, migrate=migrate
             )
-            self.execute(sql)
+            self._run(sql)
 
     def _set_chunk_time_interval(self, model, field):
         """
@@ -185,10 +210,10 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
         self._assert_is_hypertable(model)
 
         table = self._regclass(model)
-        interval = self.quote_value(field.interval)
+        interval = self._literal(field.interval)
 
         sql = self.sql_set_chunk_time_interval.format(table=table, interval=interval)
-        self.execute(sql)
+        self._run(sql)
 
     def create_model(self, model):
         super().create_model(model)
@@ -226,7 +251,7 @@ class TimescaleSchemaEditor(DatabaseSchemaEditor):
 
         try:
             if self.connection.schema_name:
-                schema_name = self.quote_value(self.connection.schema_name)
+                schema_name = self._literal(self.connection.schema_name)
                 extra_condition = ' AND ' + self.sql_hypertable_is_in_schema.format(schema_name=schema_name)
         except AttributeError:
             pass
