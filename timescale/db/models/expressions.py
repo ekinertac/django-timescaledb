@@ -124,3 +124,38 @@ class TimeBucketGapFill(models.Func):
                 interval = interval / datapoints
         output_field = TimescaleDateTimeField(interval=interval)
         super().__init__(interval, expression, start, end, output_field=output_field)
+
+
+class Locf(models.Func):
+    """
+    Last observation carried forward: fills an empty time_bucket_gapfill
+    bucket with the value of the bucket before it.
+
+    Only valid in a query that uses time_bucket_gapfill, around an aggregate:
+
+        Metric.timescale.time_bucket_gapfill('time', '1 day', start, end)
+            .annotate(temperature=Locf(Avg('temperature')))
+
+    https://docs.timescale.com/api/latest/hyperfunctions/gapfilling/locf/
+    """
+
+    function = "locf"
+    name = "locf"
+    arity = 1
+
+
+class Interpolate(models.Func):
+    """
+    Linear interpolation: fills an empty time_bucket_gapfill bucket from the
+    buckets before and after it. Use it like `Locf`.
+
+    The optional `prev` and `next` arguments of the SQL function (values
+    outside the queried range) are not supported; the first and last bucket
+    stay NULL when they are empty.
+
+    https://docs.timescale.com/api/latest/hyperfunctions/gapfilling/interpolate/
+    """
+
+    function = "interpolate"
+    name = "interpolate"
+    arity = 1
