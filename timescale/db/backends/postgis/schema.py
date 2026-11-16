@@ -1,3 +1,26 @@
+"""
+Schema editor that turns a table into a TimescaleDB hypertable.
+
+Responsibility: after Django creates or alters a table that has a
+`TimescaleDateTimeField`, fix the primary key and call `create_hypertable`.
+Used by: `DatabaseWrapper.SchemaEditorClass` in `base.py`, so every migration
+and `syncdb` on this backend goes through it.
+Related: this is a copy of `timescale/db/backends/postgresql/schema.py` with
+`PostGISSchemaEditor` as the base class. Change both together. Only the
+postgresql copy has tests.
+
+Constraints:
+- TimescaleDB needs the partition column in every unique index, the primary
+  key included. Django's default key is on `id` only, so it is replaced with
+  `(id, time)`.
+- Every statement must also work with `collect_sql=True` (`sqlmigrate`), where
+  the table does not exist yet. So the key name is looked up by the server in
+  a DO block, not from Python.
+- Tables are passed to TimescaleDB as a quoted regclass (`'"Name"'`). An
+  unquoted name is folded to lower case by PostgreSQL. The two hypertable
+  asserts still match by table name; `_get_extra_condition` narrows them to
+  one schema for django-tenants.
+"""
 from django.conf import settings
 from django.contrib.gis.db.backends.postgis.schema import PostGISSchemaEditor
 
@@ -29,7 +52,23 @@ class TimescaleSchemaEditor(PostGISSchemaEditor):
             'END; $do$'
     )
 
-    sql_drop_primary_key = 'ALTER TABLE {table} DROP CONSTRAINT {pkey}'
+    # The key name is read from pg_constraint: PostgreSQL truncates it at 63
+    # bytes, so `<table>_pkey` is wrong for long or multi-byte table names.
+    # The foreign key test gives a clear message for the one case where the
+    # drop cannot work.
+    sql_drop_primary_key = (
+        'DO $do$ DECLARE pkey text; BEGIN '
+        "IF EXISTS (SELECT 1 FROM pg_constraint WHERE confrelid = {table}::regclass AND contype = 'f') "
+        'THEN RAISE EXCEPTION {error_message}; '
+        'END IF; '
+        "SELECT conname INTO pkey FROM pg_constraint WHERE conrelid = {table}::regclass AND contype = 'p'; "
+        'IF pkey IS NOT NULL '
+        "THEN EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', {table}::regclass, pkey); "
+        'END IF; '
+        'END; $do$'
+    )
+
+    sql_add_primary_key = 'ALTER TABLE {table} ADD PRIMARY KEY ({columns})'
 
     sql_add_hypertable = (
         "SELECT create_hypertable("
@@ -70,20 +109,51 @@ class TimescaleSchemaEditor(PostGISSchemaEditor):
 
         self.execute(sql)
 
+    def _regclass(self, model):
+        """
+        The table as a string literal that PostgreSQL casts to regclass.
+        The inner identifier quotes keep upper case names intact.
+        """
+        return self.quote_value(self.quote_name(model._meta.db_table))
+
+    def _primary_key_columns(self, model):
+        pk = model._meta.pk
+        # CompositePrimaryKey (Django 5.2+) has `columns`; a normal field has `column`.
+        return list(getattr(pk, 'columns', None) or [pk.column])
+
     def _drop_primary_key(self, model):
         """
-        Hypertables can't partition if the primary key is not
-        the partition column.
-        So we drop the mandatory primary key django creates.
+        Drop the primary key, whatever its name is.
         """
-        db_table = model._meta.db_table
-        table = self.quote_name(db_table)
-        pkey_length = self.connection.ops.max_name_length()
-        pkey = self.quote_name(f'{db_table[:pkey_length - 5]}_pkey')
+        error_message = self.quote_value(
+            "cannot convert " + model._meta.db_table + " to a hypertable: "
+            "foreign keys in other tables reference it. Remove them first "
+            "(for a ForeignKey, set db_constraint=False)."
+        )
+        sql = self.sql_drop_primary_key.format(table=self._regclass(model), error_message=error_message)
 
-        sql = self.sql_drop_primary_key.format(table=table, pkey=pkey)
+        # params=None: the statement has literal % signs (format()), and the
+        # default params=() makes Django run it through % interpolation.
+        self.execute(sql, None)
 
-        self.execute(sql)
+    def _fix_primary_key(self, model, field):
+        """
+        TimescaleDB rejects a primary key that does not include the partition
+        column. A key that includes it (composite key, or the time field as
+        the key) stays. Any other key becomes `(<key columns>, <time>)`, so
+        the id stays unique per timestamp and stays indexed.
+        """
+        pk_columns = self._primary_key_columns(model)
+        if field.column in pk_columns:
+            return
+
+        self._drop_primary_key(model)
+
+        # A null=True time field gets the key too. create_hypertable sets the
+        # column NOT NULL in any case, and both statements fail the same way
+        # when existing rows have NULL in it.
+        columns = ', '.join(self.quote_name(column) for column in pk_columns + [field.column])
+        self.execute(self.sql_add_primary_key.format(table=self.quote_name(model._meta.db_table), columns=columns))
 
     def _create_hypertable(self, model, field, should_migrate=False):
         """
@@ -92,12 +162,11 @@ class TimescaleSchemaEditor(PostGISSchemaEditor):
         # assert that the table is not already a hypertable
         self._assert_is_not_hypertable(model)
 
-        # drop primary key of the table
-        self._drop_primary_key(model)
+        self._fix_primary_key(model, field)
 
         partition_column = self.quote_value(field.column)
         interval = self.quote_value(field.interval)
-        table = self.quote_value(model._meta.db_table)
+        table = self._regclass(model)
         migrate = "true" if should_migrate else "false"
 
         if should_migrate and getattr(settings, "TIMESCALE_MIGRATE_HYPERTABLE_WITH_FRESH_TABLE", False):
@@ -116,7 +185,7 @@ class TimescaleSchemaEditor(PostGISSchemaEditor):
         # assert if already a hypertable
         self._assert_is_hypertable(model)
 
-        table = self.quote_value(model._meta.db_table)
+        table = self._regclass(model)
         interval = self.quote_value(field.interval)
 
         sql = self.sql_set_chunk_time_interval.format(table=table, interval=interval)

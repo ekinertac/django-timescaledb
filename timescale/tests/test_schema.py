@@ -175,12 +175,13 @@ class TestHypertableGuard:
     def test_create_hypertable_on_existing_hypertable_raises(self):
         """
         _create_hypertable calls _assert_is_not_hypertable first.
-        Attempting to re-create a hypertable raises django.db.utils.InternalError.
+        Attempting to re-create a hypertable raises a database error
+        (InternalError with psycopg2, ProgrammingError with psycopg 3).
         This is intentional protection against double-creation.
         """
-        from django.db.utils import InternalError
+        from django.db.utils import DatabaseError
 
-        with pytest.raises(InternalError):
+        with pytest.raises(DatabaseError, match='should not be a hyper table'):
             with connection.schema_editor() as editor:
                 # Metric is already a hypertable — this must raise, not silently pass
                 editor._create_hypertable(Metric, Metric._meta.get_field('time'))
