@@ -90,3 +90,35 @@ class TestGapfillFunctions:
     def test_interpolate_fills_the_gap_linearly(self):
         from timescale.db.models.expressions import Interpolate
         assert self._rows(Interpolate(Avg('temperature'))) == [(10.0, 10.0), (None, 20.0), (30.0, 30.0)]
+
+
+class TestPackageExports:
+    def test_all_names_are_importable(self):
+        import timescale.db.models as tsdb
+        for name in tsdb.__all__:
+            assert getattr(tsdb, name) is not None
+
+    def test_same_objects_as_the_long_paths(self):
+        import timescale.db.models as tsdb
+        from timescale.db.models.fields import TimescaleDateTimeField
+        from timescale.db.models.models import TimescaleModel
+        assert tsdb.TimescaleDateTimeField is TimescaleDateTimeField
+        assert tsdb.TimescaleModel is TimescaleModel
+
+    def test_unknown_name_raises_attribute_error(self):
+        import timescale.db.models as tsdb
+        with pytest.raises(AttributeError):
+            tsdb.DoesNotExist
+
+    def test_backend_imports_before_the_app_registry_is_ready(self):
+        """
+        Django imports the database backend while it loads settings. If the
+        package defined a model class at import time, this would raise
+        AppRegistryNotReady. A subprocess is needed: this process is set up.
+        """
+        code = (
+            "import os; os.environ['DJANGO_SETTINGS_MODULE'] = 'timescale.tests.settings'; "
+            "import timescale.db.backends.postgresql.base, timescale.db.models; print('ok')"
+        )
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+        assert result.stdout.strip() == 'ok', result.stderr
