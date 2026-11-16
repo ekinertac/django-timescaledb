@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone as tz, timedelta
 
-from django.db import models
+from django.db import connection, models
 from django.db.models import Avg
 
 from timescale.db.models.managers import TimescaleManager
@@ -73,8 +73,15 @@ class TestTimeBucket:
 # ── time_bucket_ng ───────────────────────────────────────────────────────────
 
 class TestTimeBucketNg:
-    @pytest.mark.skip(reason="timescaledb_experimental.time_bucket_ng not available in this TimescaleDB version")
     def test_monthly_buckets_with_avg(self):
+        # time_bucket_ng is an experimental function that some TimescaleDB versions do not have.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                "WHERE n.nspname = 'timescaledb_experimental' AND p.proname = 'time_bucket_ng'")
+            if not cursor.fetchone():
+                pytest.skip("timescaledb_experimental.time_bucket_ng not available in this TimescaleDB version")
+
         from dateutil.relativedelta import relativedelta
         from django.utils import timezone
 
@@ -289,8 +296,14 @@ class TestFirstLastAggregates:
 # ── LTTB ─────────────────────────────────────────────────────────────────────
 
 class TestLTTB:
-    @pytest.mark.skip(reason="TimescaleDB Toolkit (lttb) not available")
     def test_lttb_returns_downsampled_results(self):
+        # lttb is in the toolkit extension, which the plain timescaledb image does not ship.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb_toolkit'")
+            if not cursor.fetchone():
+                pytest.skip("TimescaleDB Toolkit (lttb) not available")
+            cursor.execute('CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit')
+
         base = datetime(2024, 6, 15, 0, 0, 0, tzinfo=tz.utc)
         for i in range(20):
             MetricFactory(time=base + timedelta(hours=i), temperature=float(i))
